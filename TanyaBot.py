@@ -9,6 +9,7 @@ app = Flask(__name__)
 TOKEN = os.getenv('TELEGRAM_API_TOKEN')  # Используем переменную окружения для токена
 bot = telebot.TeleBot(TOKEN)
 
+# Обработка вебхуков
 @app.route('/webhook', methods=['POST'])
 def webhook():
     json_str = request.get_data().decode('UTF-8')
@@ -17,13 +18,14 @@ def webhook():
     return 'OK', 200
 
 # Настройка webhook
-@app.route('/setwebhook', methods=['GET', 'POST'])
+@app.route('/setwebhook', methods=['GET'])
 def set_webhook():
     webhook_url = os.getenv('WEBHOOK_URL')  # Адрес для вашего webhook (платформа Render)
     bot.remove_webhook()
     bot.set_webhook(url=webhook_url)
     return f'Webhook set to {webhook_url}', 200
 
+# Обработчики сообщений и команд
 @bot.message_handler(commands=['start'])
 def start(message):
     text = (
@@ -55,7 +57,10 @@ def handle_subscription(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "spf_option")
 def handle_spf(call):
-    photo = open('spf.jpg', 'rb')  # Убедитесь, что файл существует
+    try:
+        photo = open('spf.jpg', 'rb')  # Убедитесь, что файл существует
+    except FileNotFoundError:
+        photo = None  # В случае отсутствия файла, просто пропустим
 
     caption = (
         "<b>SPF☀️ОТПУСК</b>\n"
