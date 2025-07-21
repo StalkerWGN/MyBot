@@ -2,6 +2,11 @@ import telebot
 from telebot import types
 from flask import Flask, request
 import os
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Создаем Flask-приложение
 app = Flask(__name__)
@@ -14,6 +19,7 @@ bot = telebot.TeleBot(TOKEN)
 def webhook():
     json_str = request.get_data().decode('UTF-8')
     update = telebot.types.Update.de_json(json_str)
+    logger.debug(f"Received update: {update}")
     bot.process_new_updates([update])
     return 'OK', 200
 
@@ -23,11 +29,14 @@ def set_webhook():
     webhook_url = os.getenv('WEBHOOK_URL')  # Адрес для вашего webhook (платформа Render)
     bot.remove_webhook()
     bot.set_webhook(url=webhook_url)
+    logger.info(f"Webhook set to {webhook_url}")
     return f'Webhook set to {webhook_url}', 200
 
 # Обработчики сообщений и команд
 @bot.message_handler(commands=['start'])
 def start(message):
+    logger.debug(f"Received /start from {message.chat.id}")
+
     text = (
         "Здравствуйте!  \n\n"
         "👩🏻‍⚕️<b> Я — Доктор и Репетитор Татьяна Кузина. </b>👩🏻‍🎓\n\n"
@@ -47,20 +56,28 @@ def start(message):
     markup.add(btn)
 
     bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='HTML', disable_web_page_preview=True)
+    logger.debug(f"Sent /start message to {message.chat.id}")
 
 @bot.callback_query_handler(func=lambda call: call.data == "subscribe")
 def handle_subscription(call):
+    logger.debug(f"Received subscribe callback from {call.message.chat.id}")
+    
     markup = types.InlineKeyboardMarkup()
     btn = types.InlineKeyboardButton("SPF☀️ОТПУСК", callback_data="spf_option")
     markup.add(btn)
     bot.send_message(call.message.chat.id, "Подписки:", reply_markup=markup)
+    logger.debug(f"Sent subscription options to {call.message.chat.id}")
 
 @bot.callback_query_handler(func=lambda call: call.data == "spf_option")
 def handle_spf(call):
+    logger.debug(f"Received spf_option callback from {call.message.chat.id}")
+    
     try:
         photo = open('spf.jpg', 'rb')  # Убедитесь, что файл существует
+        logger.info("Photo 'spf.jpg' found")
     except FileNotFoundError:
         photo = None  # В случае отсутствия файла, просто пропустим
+        logger.error("Photo 'spf.jpg' not found")
 
     caption = (
         "<b>SPF☀️ОТПУСК</b>\n"
@@ -73,9 +90,12 @@ def handle_spf(call):
     markup.add(btn)
 
     bot.send_photo(call.message.chat.id, photo, caption=caption, reply_markup=markup, parse_mode='HTML')
+    logger.debug(f"Sent SPF photo and subscription terms to {call.message.chat.id}")
 
 @bot.callback_query_handler(func=lambda call: call.data == "terms")
 def handle_terms(call):
+    logger.debug(f"Received terms callback from {call.message.chat.id}")
+    
     text = (
         "⏳<b>Длительность подписки</b>\n"
         "— 30 суток.\n\n"
@@ -111,7 +131,9 @@ def handle_terms(call):
         parse_mode='HTML',
         disable_web_page_preview=True
     )
+    logger.debug(f"Sent subscription terms and payment link to {call.message.chat.id}")
 
 # Запуск Flask-приложения
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    logger.info("Flask app running on port 5000")
