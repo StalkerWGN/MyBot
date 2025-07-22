@@ -1,32 +1,48 @@
-import os
-from flask import Flask, request
 import telebot
 from telebot import types
+from flask import Flask, request
+import os
+import logging
 
-# Инициализация
-TOKEN = os.getenv('TELEGRAM_API_TOKEN')
-WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-if not TOKEN:
-    raise ValueError("TELEGRAM_API_TOKEN не установлен в переменных окружения")
-
-bot = telebot.TeleBot(TOKEN)
+# Создаем Flask-приложение
 app = Flask(__name__)
 
-# Webhook обработчик
+TOKEN = os.getenv('TELEGRAM_API_TOKEN')  # Используем переменную окружения для токена
+bot = telebot.TeleBot(TOKEN)
+
+# Обработка вебхуков
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_str = request.get_data().decode('UTF-8')
-        update = telebot.types.Update.de_json(json_str)
-        bot.process_new_updates([update])
-        return 'OK', 200
-    else:
-        return 'Unsupported Media Type', 415
+    json_str = request.get_data().decode('UTF-8')
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return 'OK', 200
 
-# Обработчик команды /start
+# Настройка webhook
+@app.route('/setwebhook', methods=['GET'])
+def set_webhook():
+    webhook_url = os.getenv('WEBHOOK_URL')  # Адрес для вашего webhook (платформа Render)
+    
+    # Сначала удаляем старый webhook
+    bot.remove_webhook()
+
+    # Устанавливаем новый webhook
+    bot.set_webhook(url=webhook_url)
+
+    # Логируем статус вебхука
+    webhook_info = bot.get_webhook_info()
+    logger.info(f"Webhook info: {webhook_info}")
+
+    return f'Webhook set to {webhook_url}', 200
+
+# Обработчики сообщений и команд
 @bot.message_handler(commands=['start'])
 def start(message):
+    logger.debug(f"Processing /start command from {message.chat.id}")
     text = (
         "Здравствуйте!  \n\n"
         "👩🏻‍⚕️<b> Я — Доктор и Репетитор Татьяна Кузина. </b>👩🏻‍🎓\n\n"
@@ -42,21 +58,26 @@ def start(message):
     )
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Подписка", callback_data="subscribe"))
+    btn = types.InlineKeyboardButton("Подписка", callback_data="subscribe")
+    markup.add(btn)
+
     bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='HTML', disable_web_page_preview=True)
 
-# Обработка нажатия "Подписка"
 @bot.callback_query_handler(func=lambda call: call.data == "subscribe")
 def handle_subscription(call):
+    logger.debug(f"User {call.message.chat.id} selected 'subscribe'")
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("SPF☀️ОТПУСК", callback_data="spf_option"))
+    btn = types.InlineKeyboardButton("SPF☀️ОТПУСК", callback_data="spf_option")
+    markup.add(btn)
     bot.send_message(call.message.chat.id, "Подписки:", reply_markup=markup)
 
-# Обработка нажатия SPF
 @bot.callback_query_handler(func=lambda call: call.data == "spf_option")
 def handle_spf(call):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Условия подписки", callback_data="terms"))
+    logger.debug(f"User {call.message.chat.id} selected 'spf_option'")
+    try:
+        photo = open('spf.jpg', 'rb')  # Убедитесь, что файл существует
+    except FileNotFoundError:
+        photo = None  # В случае отсутствия файла, просто пропустим
 
     caption = (
         "<b>SPF☀️ОТПУСК</b>\n"
@@ -64,15 +85,15 @@ def handle_spf(call):
         "⭐️Выбор средства только исходя из ваших новых знаний."
     )
 
-    try:
-        with open('spf.jpg', 'rb') as photo:
-            bot.send_photo(call.message.chat.id, photo, caption=caption, reply_markup=markup, parse_mode='HTML')
-    except FileNotFoundError:
-        bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode='HTML')
+    markup = types.InlineKeyboardMarkup()
+    btn = types.InlineKeyboardButton("Условия подписки", callback_data="terms")
+    markup.add(btn)
 
-# Обработка нажатия условий
+    bot.send_photo(call.message.chat.id, photo, caption=caption, reply_markup=markup, parse_mode='HTML')
+
 @bot.callback_query_handler(func=lambda call: call.data == "terms")
 def handle_terms(call):
+    logger.debug(f"User {call.message.chat.id} selected 'terms'")
     text = (
         "⏳<b>Длительность подписки</b>\n"
         "— 30 суток.\n\n"
@@ -91,17 +112,24 @@ def handle_terms(call):
         "<b>⚙️Техподдержка бота</b>\n"
         "По техническим вопросам необходимо обращаться в аккаунт Поддержки бота @HakuSonThunder.\n"
         "Если нет ответа, повторно писать не нужно.\n\n"
-"🏝️Частный канал\n"
+        "🏝️Частный канал\n"
         "«<b>SPF☀️ОТПУСК</b>»\n"
         "наполнен невероятно важной, необходимой информацией для каждого, кто хочет сохранить здоровье и красоту своей кожи и не только!🍀\n"
         "Вас ждёт сказочно красивый, атмосферный и, самое главное, понятный и полезный контент!🌷"
     )
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Оплатить 990р/месяц", url="https://yookassa.ru/"))
+    pay_btn = types.InlineKeyboardButton("Оплатить 990р/месяц", url="https://yookassa.ru/")
+    markup.add(pay_btn)
 
-    bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode='HTML', disable_web_page_preview=True)
+    bot.send_message(
+        call.message.chat.id,
+        text,
+        reply_markup=markup,
+        parse_mode='HTML',
+        disable_web_page_preview=True
+    )
 
-# Запуск приложения
-if name == "__main__":
+# Запуск Flask-приложения
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
